@@ -1,0 +1,27 @@
+# Keil MDK build outputs
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+MDK-ARM/DebugConfig/
+MDK-ARM/v1.0/
+MDK-ARM/*.uvoptx
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.scvd
+MDK-ARM/*.dep
+MDK-ARM/*.crf
+MDK-ARM/*.d
+MDK-ARM/*.o
+MDK-ARM/*.axf
+MDK-ARM/*.hex
+MDK-ARM/*.map
+MDK-ARM/*.lst
+MDK-ARM/*.lnp
+MDK-ARM/*.htm
+MDK-ARM/*.build_log.htm
+
+# STM32CubeIDE / generated local metadata
+*.launch
+
+# Editor and OS local files
+.vscode/
+.DS_Store
+Thumbs.db
