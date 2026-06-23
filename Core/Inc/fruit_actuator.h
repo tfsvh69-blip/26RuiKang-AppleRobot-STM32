@@ -57,13 +57,13 @@ int Cutter_Cut(void);
 int Sorter_ToCenter(void);
 
 /**
-  * @brief 分类舵机转向大果仓。
+  * @brief 分类舵机转向当前大果暂存区。
   * @retval FRUIT_ACTUATOR_OK 或负数错误码。
   */
 int Sorter_ToBigSide(void);
 
 /**
-  * @brief 分类舵机转向小果仓。
+  * @brief 分类舵机转向当前小果暂存区。
   * @retval FRUIT_ACTUATOR_OK 或负数错误码。
   */
 int Sorter_ToSmallSide(void);
@@ -78,20 +78,22 @@ int Sorter_DropByType(FruitType_t type);
 
 /**
   * @brief 大果暂存篮执行两次倒出动作，并最终回到装载状态。
-  * @note  使用 SERVO_4：135 度为装载，90 度为倒出。
+  * @note  当前大小果暂存区已互换；大果使用原小果篮 SERVO_5：
+  *        125 度为装载，170 度为倒出。
   * @retval FRUIT_ACTUATOR_OK 或负数错误码。
   */
 int FruitBasket_DumpBig(void);
 
 /**
-  * @brief 小果暂存篮执行两次倒出动作，并最终回到装载状态。
-  * @note  使用 SERVO_5：125 度为装载，170 度为倒出。
+  * @brief 小果暂存篮执行三次倒出动作，并最终回到装载状态。
+  * @note  当前大小果暂存区已互换；小果使用原大果篮 SERVO_4：
+  *        135 度为装载，65 度为倒出。
   * @retval FRUIT_ACTUATOR_OK 或负数错误码。
   */
 int FruitBasket_DumpSmall(void);
 
 /**
-  * @brief 依次倒出大果暂存篮和小果暂存篮。
+  * @brief 依次倒出当前大果暂存篮和当前小果暂存篮。
   * @retval FRUIT_ACTUATOR_OK 或负数错误码。
   */
 int FruitBasket_DumpAll(void);

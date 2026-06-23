@@ -77,6 +77,8 @@ volatile uint8_t rxCount = 0;
 volatile bool imuFrameFlag = false;
 
 protocol_info_t g_output_info = {0};
+static volatile bool s_imu_yaw_zero_valid = false;
+static volatile float s_imu_yaw_zero_deg = 0.0f;
 
 static uint8_t s_usart1_rx_buf[EMM_UART_RX_BUF_LEN];
 static uint8_t s_usart1_tx_buf[USART1_TX_DMA_BUF_LEN];
@@ -90,6 +92,17 @@ static int32_t Imu_ReadI32LE(const uint8_t *data)
 static uint32_t Imu_ReadU32LE(const uint8_t *data)
 {
   return ((uint32_t)data[0]) | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
+}
+
+static float Imu_Norm180(float deg)
+{
+  while (deg >= 180.0f) {
+    deg -= 360.0f;
+  }
+  while (deg < -180.0f) {
+    deg += 360.0f;
+  }
+  return deg;
 }
 
 static uint16_t Imu_CalcChecksum(const uint8_t *data, uint16_t len)
@@ -150,6 +163,10 @@ static uint8_t Imu_CheckDataLenById(uint8_t id, uint8_t len, const uint8_t *data
         g_output_info.pitch = (float)Imu_ReadI32LE(data) * IMU_NOT_MAG_DATA_FACTOR;
         g_output_info.roll = (float)Imu_ReadI32LE(data + IMU_SINGLE_DATA_BYTES) * IMU_NOT_MAG_DATA_FACTOR;
         g_output_info.yaw = (float)Imu_ReadI32LE(data + IMU_SINGLE_DATA_BYTES * 2u) * IMU_NOT_MAG_DATA_FACTOR;
+        if (s_imu_yaw_zero_valid == false) {
+          s_imu_yaw_zero_deg = g_output_info.yaw;
+          s_imu_yaw_zero_valid = true;
+        }
         return 1u;
       }
       break;
@@ -984,6 +1001,8 @@ void Emm_UartRxStart(void)
 void Imu_Uart3RxStart(void)
 {
   imuFrameFlag = false;
+  s_imu_yaw_zero_valid = false;
+  s_imu_yaw_zero_deg = 0.0f;
   Imu_ResetRxState();
   (void)HAL_UARTEx_ReceiveToIdle_DMA(&huart3, s_usart3_rx_buf, IMU_UART_RX_BUF_LEN);
   if (huart3.hdmarx != NULL) {
@@ -996,6 +1015,26 @@ uint8_t Imu_GetFrameReadyAndClear(void)
   uint8_t ready = (imuFrameFlag == true) ? 1u : 0u;
   imuFrameFlag = false;
   return ready;
+}
+
+float Imu_GetYawRaw(void)
+{
+  return g_output_info.yaw;
+}
+
+float Imu_GetYawRelative(void)
+{
+  if (s_imu_yaw_zero_valid == false) {
+    return 0.0f;
+  }
+
+  return Imu_Norm180(g_output_info.yaw - s_imu_yaw_zero_deg);
+}
+
+void Imu_ResetYawZeroToCurrent(void)
+{
+  s_imu_yaw_zero_deg = g_output_info.yaw;
+  s_imu_yaw_zero_valid = true;
 }
 
 void usart_SendCmd(const uint8_t *cmd, uint8_t len)
@@ -1057,16 +1096,16 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
   }
 
   if (huart->Instance == UART4) {
-    Lidar_ParseFrame(0u, s_uart4_rx_buf, size);
+    Lidar_ProcessStream(0u, s_uart4_rx_buf, size);
     /* 关键：重新启动DMA接收，避免停滞 */
     (void)HAL_UARTEx_ReceiveToIdle_DMA(&huart4, s_uart4_rx_buf, LIDAR_UART_RX_LEN);
     __HAL_DMA_DISABLE_IT(huart4.hdmarx, DMA_IT_HT);
   } else if (huart->Instance == UART5) {
-    Lidar_ParseFrame(1u, s_uart5_rx_buf, size);
+    Lidar_ProcessStream(1u, s_uart5_rx_buf, size);
     (void)HAL_UARTEx_ReceiveToIdle_DMA(&huart5, s_uart5_rx_buf, LIDAR_UART_RX_LEN);
     __HAL_DMA_DISABLE_IT(huart5.hdmarx, DMA_IT_HT);
   } else if (huart->Instance == USART6) {
-    Lidar_ParseFrame(2u, s_usart6_rx_buf, size);
+    Lidar_ProcessStream(2u, s_usart6_rx_buf, size);
     (void)HAL_UARTEx_ReceiveToIdle_DMA(&huart6, s_usart6_rx_buf, LIDAR_UART_RX_LEN);
     __HAL_DMA_DISABLE_IT(huart6.hdmarx, DMA_IT_HT);
   } else if (huart->Instance == USART1) {

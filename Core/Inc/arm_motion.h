@@ -43,7 +43,7 @@ extern "C" {
  * 这里的默认值用于回零完成后的普通 XYZ 绝对位置运动、后撤、投放和安全回收。
  */
 #define ARM_MOTION_DEFAULT_VEL_RPM          800u
-#define ARM_MOTION_DEFAULT_ACC              80u
+#define ARM_MOTION_DEFAULT_ACC              150u
 
 /* 已确认的 XYZ 机械行程范围，单位 mm。 */
 #define ARM_MOTION_X_MIN_MM                 0.0f
@@ -118,6 +118,13 @@ typedef struct
 ArmMotionStatus_t Arm_SetCurrentPositionZero(void);
 
 /**
+  * @brief  将当前 XYZ 位置设置为 Emm_V5 驱动器原点并请求存储。
+  * @note   仅应在 XYZ 已经完成机械回零并清零后调用，避免把错误位置写入驱动器。
+  * @retval ArmMotionStatus_t 错误码
+  */
+ArmMotionStatus_t Arm_StoreCurrentPositionAsDriverOrigin(void);
+
+/**
   * @brief  获取模块缓存的当前 XYZ 软件坐标。
   * @param  position 输出坐标，单位 mm
   * @retval ArmMotionStatus_t 错误码
@@ -180,7 +187,8 @@ ArmMotionStatus_t Arm_RetractSafe(void);
 
 /**
   * @brief  XYZ 轴回零。
-  * @note   内部调用 Arm_Init_AllParallel() 寻限位，然后将当前位置设为软件零点。
+  * @note   内部调用 Arm_Init_AllParallel() 寻限位，然后将当前位置设为软件零点，
+  *         并请求 Emm_V5 将当前位置作为驱动器原点存储。
   * @retval ArmMotionStatus_t 错误码
   */
 ArmMotionStatus_t Arm_HomeXYZ(void);

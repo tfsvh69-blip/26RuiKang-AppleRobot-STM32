@@ -117,6 +117,12 @@ extern protocol_info_t g_output_info;
 void Emm_UartRxStart(void);
 void Imu_Uart3RxStart(void);
 uint8_t Imu_GetFrameReadyAndClear(void);
+/* 读取 IMU 原始 yaw，单位度，不做 MCU 复位零点偏移。 */
+float Imu_GetYawRaw(void);
+/* 读取相对本次 MCU 复位零点的 yaw，单位度，范围 [-180, 180)。 */
+float Imu_GetYawRelative(void);
+/* 将当前 IMU 原始 yaw 重新设为软件零点。 */
+void Imu_ResetYawZeroToCurrent(void);
 void usart_SendCmd(const uint8_t *cmd, uint8_t len);
 void usart_SendByte(uint16_t data);
 

@@ -34,12 +34,50 @@ typedef enum
   PI_ERR_PARAM = -6
 } PiResult_t;
 
+/**
+  * @brief SCAN 返回 NONE 时的失败原因，便于实车调试误停车。
+  */
+typedef enum
+{
+  PI_NONE_REASON_UNKNOWN = 0,
+  PI_NONE_REASON_NO_TARGET,
+  PI_NONE_REASON_OUT_OF_RANGE,
+  PI_NONE_REASON_UNKNOWN_SIZE,
+  PI_NONE_REASON_LOW_SCORE,
+  PI_NONE_REASON_OCCLUDED
+} PiNoneReason_t;
+
+/**
+  * @brief WATCH 模式下 HIT 的窗口判定结果。
+  */
+typedef enum
+{
+  PI_HIT_ZONE_UNKNOWN = 0,
+  PI_HIT_ZONE_EARLY,
+  PI_HIT_ZONE_GOOD,
+  PI_HIT_ZONE_LATE
+} PiHitZone_t;
+
+extern volatile PiNoneReason_t g_pi_debug_last_none_reason;
+extern volatile uint8_t g_pi_debug_last_hit_stable;
+extern volatile PiHitZone_t g_pi_debug_last_hit_zone;
+
 int Pi_Ping(uint16_t seq, uint32_t timeout_ms);
 
 int Pi_RequestBestFruit(uint8_t tree_id,
                         TreeViewId_t view_id,
                         FruitTarget_t *out,
                         uint32_t timeout_ms);
+
+int Pi_RequestBestFruitWithSeq(uint8_t tree_id,
+                               TreeViewId_t view_id,
+                               FruitTarget_t *out,
+                               uint32_t timeout_ms,
+                               uint16_t *scan_seq_out);
+
+int Pi_CancelScan(uint16_t scan_seq);
+
+PiNoneReason_t Pi_GetLastNoneReason(void);
 
 int Pi_StartWatch(uint8_t tree_id,
                   TreeViewId_t view_id,

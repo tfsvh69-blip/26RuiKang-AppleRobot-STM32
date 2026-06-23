@@ -249,6 +249,15 @@ ArmMotionStatus_t Arm_SetCurrentPositionZero(void)
   return ARM_MOTION_OK;
 }
 
+ArmMotionStatus_t Arm_StoreCurrentPositionAsDriverOrigin(void)
+{
+  Emm_V5_Origin_Set_O(ARM_MOTION_MOTOR_X, true);
+  Emm_V5_Origin_Set_O(ARM_MOTION_MOTOR_Y, true);
+  Emm_V5_Origin_Set_O(ARM_MOTION_MOTOR_Z, true);
+
+  return ARM_MOTION_OK;
+}
+
 ArmMotionStatus_t Arm_GetCurrentPosition(ArmPoint_t *position)
 {
   if (position == NULL)
@@ -415,10 +424,18 @@ ArmMotionStatus_t Arm_RetractSafe(void)
 
 ArmMotionStatus_t Arm_HomeXYZ(void)
 {
+  ArmMotionStatus_t status;
+
   if (Arm_Init_AllParallel() != 0)
   {
     return ARM_MOTION_ERR_HOME;
   }
 
-  return Arm_SetCurrentPositionZero();
+  status = Arm_SetCurrentPositionZero();
+  if (status != ARM_MOTION_OK)
+  {
+    return status;
+  }
+
+  return Arm_StoreCurrentPositionAsDriverOrigin();
 }

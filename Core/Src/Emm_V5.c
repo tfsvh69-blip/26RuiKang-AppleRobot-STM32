@@ -119,6 +119,7 @@ void Emm_V5_Vel_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, bo
     0x6B
   };
   usart_SendCmd(cmd, (uint8_t)sizeof(cmd));
+  osDelay(10);
 }
 
 /**

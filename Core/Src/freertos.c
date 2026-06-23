@@ -49,6 +49,7 @@
 #include "pi_protocol.h"
 #include "fruit_pick.h"
 #include "game_task.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -81,7 +82,11 @@ EventGroupHandle_t g_sc16EventGroup = NULL;
  *   g_debug_pi_scan_status  SCAN/FRUIT 结果，0 表示成功
  *   g_debug_pick_status     FruitPick_PickOne() 结果，0 表示成功
  *   g_debug_fruit_*         STM32 实际解析到的目标
+ *   g_debug_creep_exit_*    连续巡航抓取函数退出码，OLED 第 4 行显示 ERR:<code>
  */
+volatile int g_debug_creep_exit_status = 0;
+volatile uint8_t g_debug_creep_exit_valid = 0u;
+
 /* Definitions for sc16RxATask */
 osThreadId_t sc16RxATaskHandle;
 const osThreadAttr_t sc16RxATask_attributes = {
@@ -150,6 +155,9 @@ void MX_FREERTOS_Init(void) {
 
   /* SC16IS752：创建事件标志组，用于IRQ中断唤醒 */
   g_sc16EventGroup = xEventGroupCreate();
+
+  /* OLED/UI：初始化业务状态同步对象，让OLED任务统一刷新显示。 */
+  GameUi_Init();
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -197,9 +205,11 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
   ArmMotionStatus_t arm_status = ARM_MOTION_OK;
+  ArmPoint_t arm_position = {0.0f, ARM_MOTION_Y_PRE_EXTEND_MM, 0.0f};
   FruitTarget_t fruit = {FRUIT_BIG, 0, 0, 0, 0, 0};
   int pi_status = 0;
   int pick_status = 0;
+  int creep_exit_status = 0;
 
   (void)argument;
   (void)arm_status;
@@ -208,89 +218,94 @@ void StartDefaultTask(void *argument)
   (void)pick_status;
   /* 上电复位前，先让大小果篮处于垂直避让状态。 */
   Servo_SetAll_Init();
-  
-  osDelay(2000);
-  
+
+  //等待陀螺仪稳定，避免OLED显示异常数据
+  osDelay(1500);
   Emm_V5_All_Init();
+  // Emm_V5_Disable_ID1_4();
+
+  //使能所有电机
 
   /*
    * 测试代码
   */
+  // FruitBasket_DumpBig();
+  // Base_ForwardDistanceCmNoYaw(-20.0f, 80, 40);
+
+  // 等待树莓派串口协议可用，并等待人工按键确认后才继续比赛主流程。
+  //Game_WaitPiReadyAndUserStart();
+  // /*
+  //  * XYZ 上电回零：回零完成后，立即把 Y 轴移动到 40mm。
+  //  * 后续普通 Arm_MoveToPoint() 调用不允许目标 Y 小于 40mm。
+  // */
+
+	arm_status = Arm_HomeXYZ();
+	if (arm_status == ARM_MOTION_OK)
+	{
+	  arm_status = Arm_MoveToPoint(0.0f, ARM_MOTION_Y_PRE_EXTEND_MM, 0.0f);
+	  if (arm_status == ARM_MOTION_OK)
+	  {
+		  Servo_SetFruitBasketsLoad();
+	  }
+	}
 
 
-  // Emm_V5_Disable_ID1_4();
-
-  /*
-   * XYZ 上电回零：回零完成后，立即把 Y 轴移动到 40mm。
-   * 后续普通 Arm_MoveToPoint() 调用不允许目标 Y 小于 40mm。
-  */
-  arm_status = Arm_HomeXYZ();
-  if (arm_status == ARM_MOTION_OK)
-  {
-    arm_status = Arm_MoveToPoint(0.0f, ARM_MOTION_Y_PRE_EXTEND_MM, 0.0f);
-    if (arm_status == ARM_MOTION_OK)
-    {
-      Servo_SetFruitBasketsLoad();
-    }
-  }
-
-  FruitBasket_DumpBig();
-
-
-  /*
-   * 前往采摘区的赛道动作草稿：
-   *   前进到前方 300mm 阈值，按 0/-90/180/-90/0 度绝对航向分段行驶和转向。
-   *   下面参数均为已测过的保守值，启用前按实车路线逐段取消注释。
-   */
-  // Base_ForwardUntilFrontDistanceHoldYaw(300, 80, 0.0f, 5.0f, 0.0f);
-  // Base_RotateToAbsYaw(-90.0f, 90.0f, 1.0f, 0.05f);
-  // Base_ForwardUntilFrontDistanceHoldYaw(300, 100, -90.0f, 5.0f, 0.0f);
-  // Base_RotateToAbsYaw(180.0f, 90.0f, 1.0f, 0.05f);
-  // Base_ForwardUntilFrontDistanceHoldYaw(300, 100, 180.0f, 5.0f, 0.0f);
-  // Base_RotateToAbsYaw(-90.0f, 90.0f, 1.0f, 0.05f);
-  // Base_ForwardUntilFrontDistanceHoldYaw(720, 100, -90.0f, 5.0f, 0.0f);
-  // Base_RotateToAbsYaw(0.0f, 90.0f, 1.0f, 0.05f);
+  // /*
+  //  * 前往采摘区的赛道动作草稿：
+  //  *   前进到前方 300mm 阈值，按相对本次 MCU 复位零点的 0/-90/180/-90/0 度航向分段行驶和转向。
+  //  *   下面参数均为已测过的保守值，启用前按实车路线逐段取消注释。
+  //  */
+  Base_ForwardUntilFrontDistanceHoldYaw(400, 80, 0.0f, 5.0f, 0.0f, 2000);
+  Base_RotateToAbsYaw(-90.0f, 55.0f, 0.8f, 0.05f);
+  Base_ForwardUntilFrontDistanceHoldYaw(400, 100, -90.0f, 5.0f, 0.0f, 3000);
+  Base_RotateToAbsYaw(180.0f, 55.0f, 0.8f, 0.05f);
+  Base_ForwardUntilFrontDistanceHoldYaw(700, 100, 180.0f, 5.0f, 0.0f, 2000);
+  Base_RotateToAbsYaw(-90.0f, 55.0f, 0.8f, 0.05f);
+  Base_ForwardUntilFrontDistanceHoldYaw(760, 100, -90.0f, 5.0f, 0.0f, 6000);
+  Base_RotateToAbsYaw(0.0f, 55.0f, 0.8f, 0.05f);
 
   /*
    * 沿直线采摘果实
   */
-    // if (arm_status == ARM_MOTION_OK)
-    // {
-    //   (void)Game_CreepWatchAndPick(0u,
-    //                                TREE_VIEW_LEFT,
-    //                                300.0f,
-    //                                20,
-    //                                0.0f,
-    //                                5.0f,
-    //                                0.0f);
-    // }
-    
+    if (arm_status == ARM_MOTION_OK)
+    {
+      g_debug_creep_exit_valid = 0u;
+      creep_exit_status = Game_CreepWatchAndPickUntilFrontDistance(
+                            0u,
+                            TREE_VIEW_LEFT,
+                            700u,
+                            17,
+                            0.0f,
+                            5.0f,
+                            0.0f,
+                            180*1000);
+      g_debug_creep_exit_status = creep_exit_status;
+      g_debug_creep_exit_valid = 1u;
+    }
 
+      Base_RotateToAbsYaw(90.0f, 55.0f, 0.8f, 0.05f);
+      Base_ForwardUntilFrontDistanceHoldYaw(400, 100, 90.0f, 5.0f, 0.0f, 4000);
+      Base_RotateToAbsYaw(180.0f, 55.0f, 0.8f, 0.05f);
+      Base_ForwardUntilFrontDistanceHoldYaw(250, 80, 180.0f, 5.0f, 0.0f, 2000);
+      Base_RotateToAbsYaw(90.0f, 55.0f, 0.8f, 0.05f);
+      Base_ForwardUntilFrontDistanceHoldYaw(200, 80, 90.0f, 5.0f, 0.0f, 3000);
 
-  /*
-   * 第一版通信和单果抓取测试：
-   * 1. PING 确认树莓派在线；
-   * 2. 请求第 0 棵树左观察点当前最适合抓取的一个果；
-   * 3. 收到 FRUIT 后调用 FruitPick_PickOne()，抓取细节不写在任务里。
-   */
-  // if (arm_status == ARM_MOTION_OK)
-  // {
-  //   pi_status = Pi_Ping(1u, 1000u);
-  //   if (pi_status == PI_OK)
-  //   {
-  //     pi_status = Pi_RequestBestFruit(0u, TREE_VIEW_LEFT, &fruit, 10000u);
-  //     if (pi_status == PI_OK)
-  //     {
-  //       pick_status = FruitPick_PickOne(&fruit);
-  //       (void)pick_status;
-  //     }
-  //   }
-  // }
-
-  // Arm_Init_AllParallel();s
-  // Emm_V5_Pos_Control(7, 1, 200, 20, 3200*4, true, false);
-  // Emm_V5_Motor_Control(-20, 50, 3);
-  // Emm_V5_Pos_Control(5, 1, 200, 20, 3600, true, false);  
+      //移动Y轴到较为安全的区域
+      if (arm_status == ARM_MOTION_OK)
+      {
+        arm_status = Arm_GetCurrentPosition(&arm_position);
+        if (arm_status == ARM_MOTION_OK)
+        {
+          arm_status = Arm_MoveToPoint(0.0, 40.0f, 0.0);
+        }
+      }
+      FruitBasket_DumpBig();//倒大苹果
+	  Base_ForwardDistanceCmNoYaw(-15.0f, 80, 40);
+      Base_RotateToAbsYaw(0.0f, 55.0f, 0.8f, 0.05f);
+      Base_ForwardUntilFrontDistanceHoldYaw(280, 80, 0.0f, 5.0f, 0.0f, 1000);
+	  Base_RotateToAbsYaw(-90.0f, 55.0f, 0.8f, 0.05f);
+      Base_ForwardDistanceCmNoYaw(-40.0f, 80, 40);
+      FruitBasket_DumpSmall();//倒小苹果
 
   /* Infinite loop */
   for(;;)
@@ -299,7 +314,7 @@ void StartDefaultTask(void *argument)
     //Emm_V5_Motor_Control(0, 0, 3);
     /* 每完成一轮翻转一次LED1作为任务心跳 */
     LED_Toggle(1);
-    osDelay(150);
+    osDelay(100);
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -328,6 +343,8 @@ static uint16_t Oled_FloatAbsTo3Digits(float value)
 void StartOledTask(void *argument)
 {
   HAL_StatusTypeDef oled_ok;
+  const char *pi_status_text;
+  char err_text[17];
   uint16_t dist0;
   uint16_t dist1;
   uint16_t dist2;
@@ -340,6 +357,8 @@ void StartOledTask(void *argument)
 
   if (oled_ok == HAL_OK)
   {
+    (void)OLED_Clear();
+
     /* 左侧列(1~8)给激光，右侧列(9~16)给IMU/舵机，中间留一列空白分隔。 */
     (void)OLED_ClearBuffer();
     (void)OLED_DrawString(1, 1, "L1");
@@ -363,7 +382,7 @@ void StartOledTask(void *argument)
       dist2 = (uint16_t)g_LidarArray[2].points[0].distance; // L3
 
       // 读取IMU姿态角（pitch/roll/yaw），并转为3位整数用于显示
-      imu_yaw = Oled_FloatAbsTo3Digits(g_output_info.yaw);     // Yaw
+      imu_yaw = Oled_FloatAbsTo3Digits(Imu_GetYawRelative());     // Yaw
       (void)Imu_GetFrameReadyAndClear(); // 清除IMU新帧标志
 
       // OLED左侧显示激光距离，列4，行1/2/3分别为L1/L2/L3
@@ -372,6 +391,22 @@ void StartOledTask(void *argument)
       (void)OLED_DrawNum(3, 4, dist2, 5); // L3
 
       (void)OLED_DrawNum(1, 14, imu_yaw, 3);     // Yaw，列14
+
+      if (g_debug_creep_exit_valid != 0u)
+      {
+        (void)OLED_DrawString(4, 1, "                ");
+        (void)snprintf(err_text, sizeof(err_text), "ERR:%d", g_debug_creep_exit_status);
+        (void)OLED_DrawString(4, 1, err_text);
+      }
+      else
+      {
+        pi_status_text = GameUi_GetPiStatusText();
+        if (pi_status_text != NULL)
+        {
+          (void)OLED_DrawString(4, 1, "                ");
+          (void)OLED_DrawString(4, 1, pi_status_text);
+        }
+      }
 
       // 刷新OLED，将buffer内容显示到屏幕
       (void)OLED_Flush();

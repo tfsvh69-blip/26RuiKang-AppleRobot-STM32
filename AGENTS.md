@@ -88,6 +88,10 @@
 - `calibration.py`
 - `camera_to_arm.json`
 
+当前工程中正在调试使用的树莓派视觉脚本路径：
+
+- `E:\Embedded\microcomputer\26RuiKang\V3.1\V1.1\CODE\v1.0\树莓派视觉代码\v2.4.py`
+
 ## 4. FreeRTOS 任务规则
 
 继续使用 `StartDefaultTask` 作为 GameTask，也就是比赛主流程入口。
@@ -109,6 +113,32 @@ void Game_Run(void);
 4. 不要让多个任务同时控制同一个电机。
 5. FreeRTOS 运行后使用 `osDelay()`；初始化阶段才允许使用 `HAL_Delay()`。
 6. CubeMX 生成文件中的自定义逻辑必须放在 `USER CODE` 块内。
+
+### 4.1 OLED 显示任务规则
+
+OLED 屏幕刷新必须由一个显示任务统一执行，当前优先使用 `StartOledTask`。
+
+必须遵守：
+
+1. 只有 `StartOledTask` 或后续明确指定的专门 UI 任务可以直接刷新 OLED。
+2. 其他任务不要直接频繁调用 `OLED_ClearBuffer()`、`OLED_DrawString()`、`OLED_DrawNum()`、`OLED_Flush()`。
+3. `StartDefaultTask` / `Game_Run` 等业务任务如果需要显示状态，必须通过 FreeRTOS 内置同步机制把状态传给 OLED 任务。
+4. 简单状态推荐使用 `volatile` 状态变量、`EventGroup` 或 `Task Notification`。
+5. 复杂文本、多字段状态或多模块 UI 请求推荐使用 `Queue`。
+6. 不要让两个任务同时改 OLED buffer 或同时 `OLED_Flush()`，避免显示撕裂、覆盖和 I2C/DMA 竞争。
+7. OLED 文本必须控制在当前屏幕范围内：SSD1306 128x64，8x16 字体时最多 4 行、每行 16 个 ASCII 字符。
+
+### 4.2 按键读取和人工确认规则
+
+按键用于启动确认、运动确认或危险动作确认时，必须使用消抖逻辑。
+
+必须遵守：
+
+1. 优先使用 `Button_ReadDebounce()` 或封装了同等消抖等待的按键函数。
+2. 不要直接用裸 `HAL_GPIO_ReadPin()` 作为启动、运动、抓取或倒果等动作的确认条件。
+3. 等待人工确认时，应先等待按键处于释放状态，再等待一次稳定按下，避免上电长按或抖动导致误启动。
+4. 当前 `button.h` 已封装的按键是 `KEY1~KEY4 = PE3~PE6`。
+5. 当前 `PE2` 在 `gpio.c` 中配置为输出，不是按键输入；除非实物和 CubeMX/GPIO 代码都已确认并同步更新本文件，否则不要把 `PE2` 当作按键使用。
 
 ## 5. 已有底层函数
 
@@ -200,16 +230,16 @@ Emm_V5_Pos_Control(5, 0, 200, 20, clk, true, false); // Z 正方向绝对控制
 |---|---|---|
 | 夹爪 | `SERVO_2` | 打开 `255`，闭合 `100` |
 | 剪刀 | `SERVO_1` | 打开 `270`，剪断 `60` |
-| 分类舵机 | `SERVO_3` | 中间 `135`，大果仓 `270`，小果仓 `0` |
-| 大果篮 | `SERVO_4` | 垂直避让 `45`，装载 `135`，倒出 `90` |
-| 小果篮 | `SERVO_5` | 垂直避让 `215`，装载 `125`，倒出 `170` |
+| 分类舵机 | `SERVO_3` | 中间 `135`，原大果仓/当前小果暂存区 `270`，原小果仓/当前大果暂存区 `0` |
+| 原大果篮/当前小果暂存区 | `SERVO_4` | 垂直避让 `45`，装载 `135`，倒出 `65` |
+| 原小果篮/当前大果暂存区 | `SERVO_5` | 垂直避让 `215`，装载 `125`，倒出 `170` |
 
 注意：
 
 1. 以上舵机编号和角度已经过现场确认，不要再标为 TODO。
 2. 后续如机械结构调整导致角度变化，必须同步修改 `fruit_actuator.c` 和本文件。
-3. 上电 XYZ 回零前，大果篮必须先到 `45` 度垂直避让，小果篮必须先到 `215` 度垂直避让。
-4. XYZ 回零完成并且 Y 轴移动到 `40mm` 后，大果篮再回 `135` 度装载状态，小果篮再回 `125` 度装载状态。
+3. 上电 XYZ 回零前，原大果篮/当前小果暂存区必须先到 `45` 度垂直避让，原小果篮/当前大果暂存区必须先到 `215` 度垂直避让。
+4. XYZ 回零完成并且 Y 轴移动到 `40mm` 后，原大果篮/当前小果暂存区再回 `135` 度装载状态，原小果篮/当前大果暂存区再回 `125` 度装载状态。
 
 ## 6.2 已确认的大小果投放准备点
 
@@ -217,13 +247,15 @@ Emm_V5_Pos_Control(5, 0, 200, 20, clk, true, false); // Z 正方向绝对控制
 
 | 果子类型 | XYZ 投放准备点 | 分类舵机动作 |
 |---|---|---|
-| 大果 `FRUIT_BIG` | `Arm_MoveToPoint(40, 40, 250)` | `Servo_SetAngle(SERVO_3, 270)` |
-| 小果 `FRUIT_SMALL` | `Arm_MoveToPoint(220, 40, 250)` | `Servo_SetAngle(SERVO_3, 0)` |
+| 大果 `FRUIT_BIG` | `Arm_MoveToPoint(220, 40, 250)` | `Servo_SetAngle(SERVO_3, 0)` |
+| 小果 `FRUIT_SMALL` | `Arm_MoveToPoint(40, 40, 250)` | `Servo_SetAngle(SERVO_3, 270)` |
 
 注意：
 
 1. 大果和小果的 XYZ 投放准备点不同，不要共用一个固定 `DROP_X/Y/Z`。
 2. 以上点位已经过用户实车确认，完全安全；后续若机械仓位调整，必须同步修改 `fruit_pick.c` 和本文件。
+3. 当前大小果暂存区已整体互换：大果使用原小果暂存区，分类舵机角度 `0`；小果使用原大果暂存区，分类舵机角度 `270`。
+4. 当前倒果逻辑也随暂存区整体互换：`FruitBasket_DumpBig()` 操作原小果篮 `SERVO_5`，`FruitBasket_DumpSmall()` 操作原大果篮 `SERVO_4`。
 
 ## 7. XYZ 绝对位置控制规则
 
@@ -586,7 +618,7 @@ AI 每次修改代码后必须：
 4. 当前 `freertos.c` 已加入 `Game_CreepWatchAndPick()`，用于连续巡航识别抓取；仍建议后续整理为 `Game_Init()` + `Game_Run()`。
 5. 当前 `base_control.c/.h` 已加入 `Base_ForwardDistanceCmHoldYawWatchPi()`，保持航向前进时监听 Pi 的 `HIT`。
 6. 当前 `pi_protocol.c/.h` 已加入 `WATCH` / `WATCHING` / `HIT` / `WATCH_STOP` 协议。
-7. 当前分类逻辑：树莓派决定 `BIG` / `SMALL`，STM32 只按 `fruit.type` 选择大果/小果投放准备点和分类舵机动作。
+7. 当前分类逻辑：树莓派决定 `BIG` / `SMALL`，STM32 只按 `fruit.type` 选择大果/小果投放准备点和分类舵机动作；当前大小果暂存区已整体互换，大果走原小果暂存区，小果走原大果暂存区。
 8. 任何运动控制修改都必须优先保护硬件安全，先小行程、低速度、单轴测试。
 
 ## 18. 注释语言规则

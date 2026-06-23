@@ -2,9 +2,9 @@
  * lidar_manager.c
  *
  * 底层回调对接伪代码示例：
- * UART4 IDLE 中断回调：  Lidar_ParseFrame(0, Laser1_RxBuf, rx_len);
- * UART5 IDLE 中断回调：  Lidar_ParseFrame(1, Laser2_RxBuf, rx_len);
- * USART6 IDLE 中断回调： Lidar_ParseFrame(2, Laser3_RxBuf, rx_len);
+ * UART4 IDLE 中断回调：  Lidar_ProcessStream(0, Laser1_RxBuf, rx_len);
+ * UART5 IDLE 中断回调：  Lidar_ProcessStream(1, Laser2_RxBuf, rx_len);
+ * USART6 IDLE 中断回调： Lidar_ProcessStream(2, Laser3_RxBuf, rx_len);
  * SC16IS752 DMA回调：    Lidar_ParseFrame(3, SC16_CHA_RxBuf, rx_len);
  *
  * 无锁化说明：

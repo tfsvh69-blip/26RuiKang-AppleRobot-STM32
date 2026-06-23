@@ -11,17 +11,21 @@
  *   剪断后不抬 Z，直接把 Y 轴后撤到 40mm 安全线。
  *
  * 大果投放准备点：
- *   抓到大苹果后，XYZ 先移动到 (40, 40, 250)，再让分类舵机转到大果仓方向。
+ *   当前大小果暂存区已整体互换。
+ *   抓到大苹果后，XYZ 先移动到原小果暂存区准备点 (220, 40, 250)，
+ *   再让分类舵机转到当前大果暂存区方向。
  *
  * 小果投放准备点：
- *   抓到小苹果后，XYZ 先移动到 (220, 40, 250)，再让分类舵机转到小果仓方向。
+ *   当前大小果暂存区已整体互换。
+ *   抓到小苹果后，XYZ 先移动到原大果暂存区准备点 (40, 40, 250)，
+ *   再让分类舵机转到当前小果暂存区方向。
  */
-#define FRUIT_PICK_BIG_DROP_X_MM             40.0f
+#define FRUIT_PICK_BIG_DROP_X_MM             220.0f
 #define FRUIT_PICK_BIG_DROP_Y_MM             40.0f
-#define FRUIT_PICK_BIG_DROP_Z_MM             250.0f
-#define FRUIT_PICK_SMALL_DROP_X_MM           220.0f
+#define FRUIT_PICK_BIG_DROP_Z_MM             265.0f
+#define FRUIT_PICK_SMALL_DROP_X_MM           40.0f
 #define FRUIT_PICK_SMALL_DROP_Y_MM           40.0f
-#define FRUIT_PICK_SMALL_DROP_Z_MM           250.0f
+#define FRUIT_PICK_SMALL_DROP_Z_MM           265.0f
 
 /*
  * 抓取流程使用的 XYZ 快速运动参数。
@@ -36,8 +40,8 @@
  *   如果实车出现抖动、冲击、丢步或结构晃动，优先降到 600rpm / acc=60；
  *   如果动作稳定但仍嫌慢，再逐步增加，不要一次加太多。
  */
-#define FRUIT_PICK_ARM_VEL_RPM               800u
-#define FRUIT_PICK_ARM_ACC                   80u
+#define FRUIT_PICK_ARM_VEL_RPM               800u  /* 抓取流程中 XYZ 运动速度，单位 rpm；调大动作更快，但更容易冲击、抖动或丢步。 */
+#define FRUIT_PICK_ARM_ACC                   150u  /* 抓取流程中 XYZ 加速度；调大起停更快，但机械晃动也会增大。 */
 
 
 // ================== 抓取流程动作等待时间参数 ==================
@@ -59,7 +63,7 @@
  *   如果动作已经稳定但整套流程偏慢，可以小幅减小此值。
  *   数值越大越稳，但会降低采摘速度。
  */
-#define FRUIT_PICK_GRIP_ARRIVE_WAIT_MS       2200u
+#define FRUIT_PICK_GRIP_ARRIVE_WAIT_MS       1800u /* XYZ 到达苹果中心后、夹爪闭合前的额外稳定等待；太小会没停稳就夹。 */
 
 /**
  * @brief 夹爪闭合后的保持等待时间，单位 ms。
@@ -76,7 +80,7 @@
  *   如果苹果容易滑动、夹不牢，适当增大此值。
  *   如果夹爪动作很快且稳定，可以小幅减小此值。
  */
-#define FRUIT_PICK_GRIP_WAIT_MS              300u
+#define FRUIT_PICK_GRIP_WAIT_MS              300u  /* 夹爪闭合后、剪刀剪切前的等待；给夹爪压紧苹果留时间。 */
 
 /**
  * @brief 剪刀剪切闭合后的等待时间，单位 ms。
@@ -94,7 +98,7 @@
  *   如果出现绳子没有剪断、只剪到一半，优先增大此值。
  *   如果剪刀动作已经可靠，可以在保证剪断的前提下小幅减小。
  */
-#define FRUIT_PICK_CUT_WAIT_MS               800u
+#define FRUIT_PICK_CUT_WAIT_MS               800u  /* 剪刀闭合剪断后的保持时间；太小可能绳子没剪断。 */
 
 /**
  * @brief 剪刀张开后的等待时间，单位 ms。
@@ -111,7 +115,7 @@
  *   如果剪刀还没完全张开就开始下一步动作，增大此值。
  *   如果张开动作已经很快且稳定，可以小幅减小。
  */
-#define FRUIT_PICK_CUT_OPEN_WAIT_MS          300u
+#define FRUIT_PICK_CUT_OPEN_WAIT_MS          100u  /* 剪刀重新张开后的等待；太小可能剪刀未完全打开就开始后撤。 */
 
 /**
  * @brief Y 轴后撤到 40mm 安全线后的额外停稳等待时间，单位 ms。
@@ -119,14 +123,14 @@
  * 当前 Emm_V5 还没有接入真实到位反馈，Arm_MoveToPoint() 内部只能按距离估算等待。
  * 后撤完成后先额外等一小段时间，再移动到投放准备点，避免 Y 轴还在惯性运动时开始后续动作。
  */
-#define FRUIT_PICK_RETRACT_Y_SETTLE_WAIT_MS  1000u
+#define FRUIT_PICK_RETRACT_Y_SETTLE_WAIT_MS  500u /* Y 轴后撤到 40mm 安全线后的稳定等待；太小可能还在惯性晃动就去投放点。 */
 
 /**
  * @brief XYZ 到达投放准备点后的额外停稳等待时间，单位 ms。
  *
  * 分类舵机转向果仓并释放夹爪前必须保证机械臂已经停稳，尤其是 Y 轴已经回到 40mm。
  */
-#define FRUIT_PICK_DROP_ARRIVE_WAIT_MS       1000u
+#define FRUIT_PICK_DROP_ARRIVE_WAIT_MS       1000u /* XYZ 到达大小果投放准备点后的等待；等待稳定后再转分类舵机并松夹爪。 */
 
 static void FruitPick_DelayMs(uint32_t delay_ms)
 {
