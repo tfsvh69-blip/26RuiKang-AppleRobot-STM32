@@ -24,9 +24,13 @@ DRAW_COLOR = (0, 255, 0)  # 框选颜色 (绿色)
 # 相机画面旋转设置
 ROTATE_180 = False
 
-# 苹果尺寸分类阈值 (mm)
-BIG_MIN_MM = 60.0    # 大果阈值，偏大减少误判大果，偏小更容易判大果
-SMALL_MAX_MM = 60.0  # 小果阈值，偏大更容易判小果，偏小减少小果
+# 苹果尺寸分类分界值 (mm)
+# 二分类，只有一条分界线，绝不产生 UNKNOWN：
+#   diameter >= APPLE_SIZE_SPLIT_MM 判 BIG，否则判 SMALL。
+# 只要 YOLO 识别到并测得直径，就一定归成大果或小果，不会因大小不符而放弃抓取。
+# 实测：大果约 63-65mm，小果约 45-47mm，中间空档大，分界取 55mm 最稳。
+# 微调方向：大果被误判成小果 -> 调小；小果被误判成大果 -> 调大。
+APPLE_SIZE_SPLIT_MM = 55.0
 
 # WATCH 稳定性与过滤参数
 WATCH_STABLE_FRAMES = 2      # 触发 HIT 需要连续稳定帧数，2-3 比较稳
@@ -835,11 +839,11 @@ def estimate_diameter_mm(x1, y1, x2, y2, depth_m, intrinsics):
 
 
 def classify_apple(diameter_mm):
-    if diameter_mm >= BIG_MIN_MM:
+    # 只做二分类，绝不返回 UNKNOWN：只要测得直径就归成 BIG 或 SMALL，
+    # 避免因尺寸不在预期范围而放弃抓取。分界值见 APPLE_SIZE_SPLIT_MM。
+    if diameter_mm >= APPLE_SIZE_SPLIT_MM:
         return "BIG"
-    if diameter_mm <= SMALL_MAX_MM:
-        return "SMALL"
-    return "UNKNOWN"
+    return "SMALL"
 
 
 def init_onnx_session():
@@ -1027,15 +1031,6 @@ def find_best_target_once(session, camera_state, frame_fail_count, allow_x_out_o
                 ty = y2 + 20 if y2 + 20 < h - 5 else y1 - 10
                 cv2.putText(display_frame, size_text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX,
                             0.55, (255, 255, 0), 1)
-
-            if size_label == "UNKNOWN":
-                if DEBUG_MODE:
-                    print(
-                        "REJDBG,尺寸未知,直径={:.1f}mm,阈值:SMALL<= {:.1f} / BIG>= {:.1f}".format(
-                            diameter_mm, SMALL_MAX_MM, BIG_MIN_MM
-                        )
-                    )
-                continue
 
             if nearest_depth_m is None or z_m < nearest_depth_m:
                 nearest_depth_m = z_m

@@ -47,6 +47,25 @@
 // ================== 抓取流程动作等待时间参数 ==================
 
 /**
+ * @brief X/Z 轴到位后、Y 轴开始伸出前的停稳等待时间，单位 ms。
+ *
+ * 使用位置：
+ *   抓取移动第一步（只把 X/Z 移动到抓取点，Y 轴保持不伸出）之后，
+ *   第二步（单独把 Y 轴伸到抓取点）之前。
+ *
+ * 作用：
+ *   抓取移动被拆成“先对齐 X/Z、再伸 Y”两步，目的是让夹爪先在挂果绳
+ *   正对面把水平横向 X 和高度 Z 对齐好，再平行地面伸出 Y，
+ *   避免整个夹爪斜着冲出去把绳子撞出夹爪有效范围。
+ *   由于 Emm_V5 还没有接入真实到位反馈，这里用固定等待确保 X/Z 完全停稳后再伸 Y。
+ *
+ * 调参建议：
+ *   如果 X/Z 还在惯性晃动 Y 就伸出、导致对不准挂果绳，增大此值。
+ *   如果 X/Z 停稳很快、想提升采摘速度，可小幅减小。
+ */
+#define FRUIT_PICK_XZ_ARRIVE_WAIT_MS         500u  /* X/Z 到位后、伸 Y 前的停稳等待；太小会没对齐就斜着伸出。 */
+
+/**
  * @brief XYZ 到达苹果中心抓取点后的额外稳定等待时间，单位 ms。
  *
  * 使用位置：
@@ -233,6 +252,7 @@ static int FruitPick_CutOnce(void)
 int FruitPick_PickOne(const FruitTarget_t *fruit)
 {
   ArmPoint_t grip;
+  ArmPoint_t approach;
   ArmPoint_t drop;
   ArmMotionStatus_t arm_status;
   int ret;
@@ -310,10 +330,43 @@ int FruitPick_PickOne(const FruitTarget_t *fruit)
   }
 
   /*
-   * 直接移动到树莓派给出的苹果中心抓取点。
+   * 分两步移动到树莓派给出的苹果中心抓取点，避免夹爪斜着冲出去撞挂果绳：
+   *   第一步：只把 X/Z 移动到抓取点，Y 轴保持当前位置不伸出，
+   *           让夹爪先在挂果绳正对面把横向 X 和高度 Z 对齐好。
+   *   第二步：等 X/Z 停稳后，再单独把 Y 轴平行地面伸到抓取点，
+   *           使挂果绳顺利进入夹爪有效范围。
    * 本流程不再使用 pre point，不让 XYZ 带相机扫描，也不单独计算剪切点。
    */
-  arm_status = FruitPick_MoveToPointAbs(&grip);
+  arm_status = Arm_GetCurrentPosition(&approach);
+  if (arm_status != ARM_MOTION_OK)
+  {
+    Arm_RestoreDefaultMotionParams();
+    return FRUIT_PICK_ERR_GRIPMOVE;
+  }
+  approach.x_mm = grip.x_mm;
+  approach.z_mm = grip.z_mm;
+  /*
+   * 第一步的 Y 目标保持当前 Y 不伸出；但 Arm_MoveToPoint() 要求目标 Y 不小于
+   * 40mm 保护线，否则会判为不可达，所以这里把 Y 夹到至少 40mm。
+   * 正常抓取前 Y 已经在 40mm 安全线，clamp 不会改变行为。
+   */
+  if (approach.y_mm < ARM_MOTION_Y_PRE_EXTEND_MM)
+  {
+    approach.y_mm = ARM_MOTION_Y_PRE_EXTEND_MM;
+  }
+
+  /* 第一步：X/Z 先到位，Y 不伸出。 */
+  arm_status = FruitPick_MoveToPointAbs(&approach);
+  if (arm_status != ARM_MOTION_OK)
+  {
+    Arm_RestoreDefaultMotionParams();
+    return FRUIT_PICK_ERR_GRIPMOVE;
+  }
+  /* X/Z 停稳等待，确保对齐挂果绳后再伸 Y。 */
+  FruitPick_DelayMs(FRUIT_PICK_XZ_ARRIVE_WAIT_MS);
+
+  /* 第二步：X/Z 已对齐，单独把 Y 轴伸到抓取点。 */
+  arm_status = FruitPick_MoveYToAbs(grip.y_mm);
   if (arm_status != ARM_MOTION_OK)
   {
     Arm_RestoreDefaultMotionParams();
