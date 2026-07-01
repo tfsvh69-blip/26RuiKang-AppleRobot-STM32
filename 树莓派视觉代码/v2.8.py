@@ -25,8 +25,8 @@ DRAW_COLOR = (0, 255, 0)  # 框选颜色 (绿色)
 ROTATE_180 = False
 
 # 苹果尺寸分类阈值 (mm)
-BIG_MIN_MM = 62.0    # 大果阈值，偏大减少误判大果，偏小更容易判大果
-SMALL_MAX_MM = 62.0  # 小果阈值，偏大更容易判小果，偏小减少小果
+BIG_MIN_MM = 60.0    # 大果阈值，偏大减少误判大果，偏小更容易判大果
+SMALL_MAX_MM = 60.0  # 小果阈值，偏大更容易判小果，偏小减少小果
 
 # WATCH 稳定性与过滤参数
 WATCH_STABLE_FRAMES = 2      # 触发 HIT 需要连续稳定帧数，2-3 比较稳
@@ -74,7 +74,46 @@ SERIAL_BAUD_RATE = 115200
 # 运行参数
 DEBUG_MODE = True
 PROTOCOL_DEBUG = True
-SHOW_WINDOW = True
+
+# 显示窗口兼容策略：
+# 1. 手动在桌面环境运行：默认显示 OpenCV 预览窗口。
+# 2. systemd 服务 / SSH / 无 DISPLAY 环境运行：自动关闭窗口，避免 Qt xcb 崩溃。
+# 3. 可通过环境变量强制关闭：HEADLESS=1 或 RUIKANG_SHOW_WINDOW=0。
+def _env_flag(name, default=None):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    value = value.strip().lower()
+    if value in ("1", "true", "yes", "on", "y"):
+        return True
+    if value in ("0", "false", "no", "off", "n"):
+        return False
+    return default
+
+
+def _has_display_environment():
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _resolve_show_window(default=True):
+    # HEADLESS 优先级最高，适合 systemd 服务里显式设置。
+    if _env_flag("HEADLESS", None) is True or _env_flag("RUIKANG_HEADLESS", None) is True:
+        return False
+
+    explicit = _env_flag("RUIKANG_SHOW_WINDOW", None)
+    if explicit is False:
+        return False
+
+    # 没有图形显示环境时，一律禁用窗口。否则 cv2.imshow/namedWindow 会触发 Qt xcb ABRT。
+    if not _has_display_environment():
+        return False
+
+    if explicit is True:
+        return True
+    return bool(default)
+
+
+SHOW_WINDOW = _resolve_show_window(default=True)
 DETECT_EVERY_N_FRAMES = 1
 PREVIEW_WHEN_IDLE = True
 PREVIEW_MIN_INTERVAL_S = 0.05
@@ -91,7 +130,7 @@ HIT_ZONE_X_MIN = 0.0   # HIT 仅在 GOOD 窗口内触发
 HIT_ZONE_X_MAX = 220.0 # HIT 仅在 GOOD 窗口内触发
 
 ARM_Y_MIN = 40.0  # 机械臂 Y 抓取窗口下限
-ARM_Y_MAX = 480.0 # 机械臂 Y 抓取窗口上限
+ARM_Y_MAX = 440.0 # 机械臂 Y 抓取窗口上限；超过 440 的值会在软限幅里压回 440
 ARM_Y_SOFT_CLAMP_MAX = 500.0
 ARM_Y_GRIP_EXTRA_MM = 20.0  # 抓取点 Y 轴额外伸出量：标定算出的是苹果中心，让 Y 轴再多伸出一点，方便剪刀剪断挂果绳
 
@@ -872,6 +911,8 @@ def get_latest_aligned_frames(camera_state):
     return color_image, depth_image
 
 def preview_once(camera_state, frame_fail_count):
+    if not SHOW_WINDOW:
+        return frame_fail_count, camera_state
     if camera_state is None:
         return frame_fail_count + 1, camera_state
     color_image, _ = get_latest_aligned_frames(camera_state)
@@ -889,6 +930,8 @@ def preview_once(camera_state, frame_fail_count):
 
 def preview_latest_frame_only(camera_state):
     """仅刷新最新相机画面，不改变 frame_fail_count，不做 YOLO。用于 WATCH/SCAN/HIT 后保持窗口持续更新。"""
+    if not SHOW_WINDOW:
+        return False
     if camera_state is None:
         return False
 
@@ -905,6 +948,8 @@ def preview_latest_frame_only(camera_state):
     return True
 
 def window_closed():
+    if not SHOW_WINDOW:
+        return False
     try:
         return cv2.getWindowProperty("YOLOv5n Detection", cv2.WND_PROP_VISIBLE) < 1
     except Exception:
@@ -1415,6 +1460,14 @@ def serial_loop():
             )
         )
 
+    print(
+        "运行模式: {}".format(
+            "窗口预览模式" if SHOW_WINDOW else "无窗口后台模式"
+        )
+    )
+    if not SHOW_WINDOW:
+        print("OpenCV 窗口已禁用：适合 systemd 服务/无桌面环境运行。")
+
     session = init_onnx_session()
     camera_state = init_camera()
     if camera_state is None:
@@ -1687,7 +1740,10 @@ def serial_loop():
             except Exception:
                 pass
         if SHOW_WINDOW:
-            cv2.destroyAllWindows()
+            try:
+                cv2.destroyAllWindows()
+            except Exception:
+                pass
         print("串口已安全关闭。")
 
 

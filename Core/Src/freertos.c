@@ -233,7 +233,7 @@ void StartDefaultTask(void *argument)
   // Base_ForwardDistanceCmNoYaw(-20.0f, 80, 40);
 
   // 等待树莓派串口协议可用，并等待人工按键确认后才继续比赛主流程。
-  //Game_WaitPiReadyAndUserStart();
+  Game_WaitPiReadyAndUserStart();
   // /*
   //  * XYZ 上电回零：回零完成后，立即把 Y 轴移动到 40mm。
   //  * 后续普通 Arm_MoveToPoint() 调用不允许目标 Y 小于 40mm。
@@ -278,7 +278,7 @@ void StartDefaultTask(void *argument)
                             0.0f,
                             5.0f,
                             0.0f,
-                            180*1000);
+                            10*1000);
       g_debug_creep_exit_status = creep_exit_status;
       g_debug_creep_exit_valid = 1u;
     }
